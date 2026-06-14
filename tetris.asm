@@ -66,6 +66,136 @@ c_line5_len     equ $ - c_line5
 msg_over:       db "GAME OVER"
 over_len        equ $ - msg_over
 
+; -------------------------------------------------------------------
+; Tetromino shapes: 7 pieces, 4 rotations each, as 4x4 cell grids.
+; A set cell (1) is part of the piece; the piece id (1..7) is what
+; gets written into the board when it locks.
+;   index = (id-1)*64 + rot*16 + row*4 + col
+; -------------------------------------------------------------------
+pieces:
+        ; --- I (id 1) ---
+        db 0,0,0,0
+        db 1,1,1,1
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,0,1,0
+        db 0,0,1,0
+        db 0,0,1,0
+        db 0,0,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 1,1,1,1
+        db 0,0,0,0
+        db 0,1,0,0
+        db 0,1,0,0
+        db 0,1,0,0
+        db 0,1,0,0
+        ; --- O (id 2) ---
+        db 0,0,0,0
+        db 0,1,1,0
+        db 0,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,1,0
+        db 0,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,1,0
+        db 0,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,1,0
+        db 0,1,1,0
+        db 0,0,0,0
+        ; --- T (id 3) ---
+        db 0,1,0,0
+        db 1,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,0,0
+        db 0,1,1,0
+        db 0,1,0,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 1,1,1,0
+        db 0,1,0,0
+        db 0,0,0,0
+        db 0,1,0,0
+        db 1,1,0,0
+        db 0,1,0,0
+        db 0,0,0,0
+        ; --- S (id 4) ---
+        db 0,1,1,0
+        db 1,1,0,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 1,0,0,0
+        db 1,1,0,0
+        db 0,1,0,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,1,0
+        db 1,1,0,0
+        db 0,0,0,0
+        db 0,1,0,0
+        db 0,1,1,0
+        db 0,0,1,0
+        db 0,0,0,0
+        ; --- Z (id 5) ---
+        db 1,1,0,0
+        db 0,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,0,1,0
+        db 0,1,1,0
+        db 0,1,0,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 1,1,0,0
+        db 0,1,1,0
+        db 0,0,0,0
+        db 0,1,0,0
+        db 1,1,0,0
+        db 1,0,0,0
+        db 0,0,0,0
+        ; --- J (id 6) ---
+        db 1,0,0,0
+        db 1,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,1,0
+        db 0,1,0,0
+        db 0,1,0,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 1,1,1,0
+        db 0,0,1,0
+        db 0,0,0,0
+        db 0,1,0,0
+        db 0,1,0,0
+        db 1,1,0,0
+        db 0,0,0,0
+        ; --- L (id 7) ---
+        db 0,0,1,0
+        db 1,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 0,1,0,0
+        db 0,1,0,0
+        db 0,1,1,0
+        db 0,0,0,0
+        db 0,0,0,0
+        db 1,1,1,0
+        db 1,0,0,0
+        db 0,0,0,0
+        db 1,1,0,0
+        db 0,1,0,0
+        db 0,1,0,0
+        db 0,0,0,0
+
+; points awarded for clearing 0..4 lines at once (scaled by level)
+points_tbl:     dd 0, 100, 300, 500, 800
+
 ; ===================================================================
 ; Writable data
 ; ===================================================================
@@ -77,6 +207,31 @@ outMode:        dd 0               ; saved output console mode
 inMode:         dd 0               ; saved input console mode
 dwWritten:      dd 0               ; bytes-written sink for WriteFile
 numRead:        dd 0               ; events-read sink for ReadConsoleInput
+numEvents:      dd 0               ; pending input events (poll)
+poll_i:         dd 0               ; input record index during a poll
+
+seed:           dd 0               ; xorshift32 state
+score:          dd 0
+lines:          dd 0
+level:          dd 1
+drop_ms:        dd 800             ; gravity interval for the current level
+grav_acc:       dd 0               ; milliseconds accumulated toward a drop
+last_tick:      dq 0               ; GetTickCount64 value at the previous frame
+
+cur_id:         dd 0               ; active piece (id 1..7)
+cur_rot:        dd 0
+cur_x:          dd 0               ; board col of the piece's 4x4 box
+cur_y:          dd 0               ; board row of the piece's 4x4 box
+next_id:        dd 0               ; queued piece
+
+; scratch copy of the active piece used to trial a move before committing
+tst_id:         dd 0
+tst_rot:        dd 0
+tst_x:          dd 0
+tst_y:          dd 0
+
+game_over:      db 0
+quit_flag:      db 0
 
 ; ===================================================================
 ; Uninitialised buffers
@@ -84,7 +239,11 @@ numRead:        dd 0               ; events-read sink for ReadConsoleInput
         section .bss
 
 mcbuf:          resb 32            ; scratch for a cursor-move escape
+numbuf:         resb 16            ; scratch for a decimal number
 inbuf:          resb 640           ; 32 INPUT_RECORDs x 20 bytes
+board:          resb 200           ; 10 x 20 cells, 0 = empty, 1..7 = piece
+scratch:        resb 200           ; board + falling piece, built each frame
+rowbuf:         resb 64            ; one rendered board row
 
 ; ===================================================================
 ; Code
@@ -124,6 +283,8 @@ main:
         call    SetConsoleMode
 
         call    draw_static
+        call    game_init
+        call    render
         call    wait_key
 
 .cleanup:
@@ -350,4 +511,238 @@ u32_to_ascii:
         inc     rdi
         dec     r9d
         jnz     .emit
+        ret
+
+; -------------------------------------------------------------------
+; print_uint : print EAX as decimal at the current cursor, then two
+;   spaces to erase any leftover digits from a previously wider value.
+; -------------------------------------------------------------------
+print_uint:
+        sub     rsp, 56
+        lea     rdi, [numbuf]
+        call    u32_to_ascii        ; digits into numbuf, RDI advanced
+        lea     rax, [numbuf]
+        sub     rdi, rax            ; RDI = number of digits
+        mov     r8, rdi
+        lea     rdx, [numbuf]
+        call    write_str
+        lea     rdx, [two_spaces]
+        mov     r8d, 2
+        call    write_str
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; rng_next : xorshift32 pseudo-random generator. Returns EAX. Leaf.
+; -------------------------------------------------------------------
+rng_next:
+        mov     eax, [seed]
+        mov     edx, eax
+        shl     edx, 13
+        xor     eax, edx
+        mov     edx, eax
+        shr     edx, 17
+        xor     eax, edx
+        mov     edx, eax
+        shl     edx, 5
+        xor     eax, edx
+        mov     [seed], eax
+        ret
+
+; -------------------------------------------------------------------
+; rng_piece : return EAX = a random piece id in 1..7.
+; -------------------------------------------------------------------
+rng_piece:
+        sub     rsp, 56
+        call    rng_next
+        xor     edx, edx
+        mov     ecx, 7
+        div     ecx                 ; EDX = EAX mod 7  -> 0..6
+        lea     eax, [edx + 1]
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; piece_cell : AL = test piece's 4x4 cell at (R10=row, R11=col).
+;   Leaf. Preserves R10/R11; clobbers EAX, ECX, EDX.
+; -------------------------------------------------------------------
+piece_cell:
+        mov     eax, [tst_id]
+        dec     eax
+        imul    eax, eax, 64
+        mov     edx, [tst_rot]
+        imul    edx, edx, 16
+        add     eax, edx
+        mov     edx, r10d
+        imul    edx, edx, 4
+        add     eax, edx
+        add     eax, r11d
+        lea     rcx, [pieces]
+        movzx   eax, byte [rcx + rax]
+        ret
+
+; -------------------------------------------------------------------
+; copy_cur_to_tst : mirror the active piece into the test slots so a
+;   candidate move/rotation can be validated before committing. Leaf.
+; -------------------------------------------------------------------
+copy_cur_to_tst:
+        mov     eax, [cur_id]
+        mov     [tst_id], eax
+        mov     eax, [cur_rot]
+        mov     [tst_rot], eax
+        mov     eax, [cur_x]
+        mov     [tst_x], eax
+        mov     eax, [cur_y]
+        mov     [tst_y], eax
+        ret
+
+; -------------------------------------------------------------------
+; spawn_piece : promote the queued piece to active and queue a fresh
+;   one, positioned top-centre.
+; -------------------------------------------------------------------
+spawn_piece:
+        sub     rsp, 56
+        mov     eax, [next_id]
+        mov     [cur_id], eax
+        call    rng_piece
+        mov     [next_id], eax
+        mov     dword [cur_rot], 0
+        mov     dword [cur_x], 3
+        mov     dword [cur_y], 0
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; game_init : clear the board and state, then spawn the first piece.
+; -------------------------------------------------------------------
+game_init:
+        sub     rsp, 56
+        lea     r8, [board]
+        xor     eax, eax
+.clr:
+        mov     byte [r8 + rax], 0
+        inc     eax
+        cmp     eax, 200
+        jl      .clr
+
+        mov     dword [score], 0
+        mov     dword [lines], 0
+        mov     dword [level], 1
+        mov     dword [drop_ms], 800
+        mov     dword [grav_acc], 0
+        mov     byte  [game_over], 0
+        mov     byte  [quit_flag], 0
+        mov     dword [seed], 0x9E3779B1
+
+        call    rng_piece
+        mov     [next_id], eax
+        call    spawn_piece
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; render : draw the playfield interior (board + falling piece) and the
+;   stat numbers. The static frame is drawn separately, once.
+; -------------------------------------------------------------------
+render:
+        sub     rsp, 56
+
+        ; --- copy the board into the scratch grid ---
+        xor     eax, eax
+        lea     r8, [board]
+        lea     r9, [scratch]
+.copy:
+        mov     cl, [r8 + rax]
+        mov     [r9 + rax], cl
+        inc     eax
+        cmp     eax, 200
+        jl      .copy
+
+        ; --- stamp the falling piece into the scratch grid ---
+        call    copy_cur_to_tst
+        xor     r10d, r10d          ; row within the 4x4 box
+.srow:
+        xor     r11d, r11d          ; col within the 4x4 box
+.scol:
+        call    piece_cell
+        test    al, al
+        jz      .snext
+        mov     eax, [cur_y]
+        add     eax, r10d           ; board row
+        js      .snext              ; still above the top -> not drawn
+        cmp     eax, 20
+        jge     .snext
+        mov     edx, [cur_x]
+        add     edx, r11d           ; board col
+        imul    eax, eax, 10
+        add     eax, edx
+        mov     edx, [cur_id]
+        lea     r8, [scratch]
+        mov     [r8 + rax], dl
+.snext:
+        inc     r11d
+        cmp     r11d, 4
+        jl      .scol
+        inc     r10d
+        cmp     r10d, 4
+        jl      .srow
+
+        ; --- draw the 20 board rows ---
+        xor     r13d, r13d          ; board row index
+.rowdraw:
+        mov     ecx, r13d
+        add     ecx, FIELD_ROW0
+        mov     edx, FIELD_COL0
+        call    move_cursor
+
+        mov     eax, r13d
+        imul    eax, eax, 10
+        mov     r14d, eax           ; scratch base index for this row
+        xor     r15d, r15d          ; board col index
+        lea     rdi, [rowbuf]
+.cell:
+        mov     eax, r14d
+        add     eax, r15d
+        lea     r8, [scratch]
+        movzx   eax, byte [r8 + rax]
+        test    al, al
+        jz      .empty
+        mov     byte [rdi], '['     ; filled cell
+        mov     byte [rdi + 1], ']'
+        jmp     .putnext
+.empty:
+        mov     byte [rdi], ' '     ; empty cell shown as a dot
+        mov     byte [rdi + 1], '.'
+.putnext:
+        add     rdi, 2
+        inc     r15d
+        cmp     r15d, 10
+        jl      .cell
+
+        lea     rdx, [rowbuf]
+        mov     r8d, 20             ; 10 cells x 2 chars
+        call    write_str
+
+        inc     r13d
+        cmp     r13d, 20
+        jl      .rowdraw
+
+        ; --- draw the stat numbers ---
+        mov     ecx, 3
+        mov     edx, STAT_COL
+        call    move_cursor
+        mov     eax, [lines]
+        call    print_uint
+        mov     ecx, 4
+        mov     edx, STAT_COL
+        call    move_cursor
+        mov     eax, [level]
+        call    print_uint
+        mov     ecx, 5
+        mov     edx, STAT_COL
+        call    move_cursor
+        mov     eax, [score]
+        call    print_uint
+
+        add     rsp, 56
         ret
