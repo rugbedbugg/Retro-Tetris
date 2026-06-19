@@ -16,6 +16,9 @@
         extern  SetConsoleMode
         extern  WriteFile
         extern  ReadConsoleInputA
+        extern  GetNumberOfConsoleInputEvents
+        extern  GetTickCount64
+        extern  Sleep
         extern  ExitProcess
 
 ; -------------------------------------------------------------------
@@ -284,7 +287,41 @@ main:
 
         call    draw_static
         call    game_init
+        call    update_speed
+
+        call    GetTickCount64
+        mov     [last_tick], rax
+        mov     dword [grav_acc], 0
+
+.loop:
+        ; accumulate the time that passed since the previous frame
+        call    GetTickCount64
+        mov     rcx, [last_tick]
+        mov     [last_tick], rax
+        sub     rax, rcx
+        add     [grav_acc], eax
+
+        ; drop the piece once per elapsed gravity interval
+.gravity:
+        mov     eax, [grav_acc]
+        mov     ecx, [drop_ms]
+        cmp     eax, ecx
+        jb      .draw
+        sub     [grav_acc], ecx
+        call    step_down
+        cmp     byte [game_over], 1
+        je      .over
+        jmp     .gravity
+
+.draw:
         call    render
+        mov     ecx, 16             ; ~60 polls/sec
+        call    Sleep
+        jmp     .loop
+
+.over:
+        call    render
+        call    draw_gameover
         call    wait_key
 
 .cleanup:
@@ -609,6 +646,147 @@ spawn_piece:
         mov     dword [cur_rot], 0
         mov     dword [cur_x], 3
         mov     dword [cur_y], 0
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; collides : AL = 1 if the test piece (tst_*) overlaps a wall, the
+;   floor, or a filled board cell; 0 otherwise. Cells above the top
+;   edge are allowed so a piece can rotate/enter from off-screen.
+; -------------------------------------------------------------------
+collides:
+        sub     rsp, 56
+        xor     r10d, r10d
+.row:
+        xor     r11d, r11d
+.col:
+        call    piece_cell
+        test    al, al
+        jz      .next               ; empty piece cell -> nothing to test
+        mov     eax, [tst_x]
+        add     eax, r11d           ; board col
+        js      .hit                ; past the left wall
+        cmp     eax, 10
+        jge     .hit                ; past the right wall
+        mov     ecx, [tst_y]
+        add     ecx, r10d           ; board row
+        cmp     ecx, 20
+        jge     .hit                ; below the floor
+        cmp     ecx, 0
+        jl      .next               ; above the top -> allowed
+        imul    ecx, ecx, 10
+        add     ecx, eax
+        lea     r8, [board]
+        movzx   edx, byte [r8 + rcx]
+        test    dl, dl
+        jnz     .hit                ; cell already occupied
+.next:
+        inc     r11d
+        cmp     r11d, 4
+        jl      .col
+        inc     r10d
+        cmp     r10d, 4
+        jl      .row
+        xor     al, al
+        add     rsp, 56
+        ret
+.hit:
+        mov     al, 1
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; lock_piece : write the active piece's cells into the board.
+; -------------------------------------------------------------------
+lock_piece:
+        sub     rsp, 56
+        call    copy_cur_to_tst
+        xor     r10d, r10d
+.row:
+        xor     r11d, r11d
+.col:
+        call    piece_cell
+        test    al, al
+        jz      .next
+        mov     eax, [cur_y]
+        add     eax, r10d
+        cmp     eax, 0
+        jl      .next
+        cmp     eax, 20
+        jge     .next
+        mov     edx, [cur_x]
+        add     edx, r11d
+        imul    eax, eax, 10
+        add     eax, edx
+        mov     edx, [cur_id]
+        lea     r8, [board]
+        mov     [r8 + rax], dl
+.next:
+        inc     r11d
+        cmp     r11d, 4
+        jl      .col
+        inc     r10d
+        cmp     r10d, 4
+        jl      .row
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; step_down : move the piece down one row. If it cannot fall, lock it,
+;   spawn the next piece, and flag game over if that one has no room.
+; -------------------------------------------------------------------
+step_down:
+        sub     rsp, 56
+        call    copy_cur_to_tst
+        inc     dword [tst_y]
+        call    collides
+        test    al, al
+        jnz     .lock
+        mov     eax, [tst_y]        ; room below -> commit the drop
+        mov     [cur_y], eax
+        add     rsp, 56
+        ret
+.lock:
+        call    lock_piece
+        call    spawn_piece
+        call    copy_cur_to_tst
+        call    collides
+        test    al, al
+        jz      .done
+        mov     byte [game_over], 1
+.done:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; update_speed : set the gravity interval from the current level.
+;   Starts at 800 ms and shortens by 70 ms per level, floored at 80.
+;   Leaf.
+; -------------------------------------------------------------------
+update_speed:
+        mov     eax, [level]
+        dec     eax
+        imul    eax, eax, 70
+        mov     ecx, 800
+        sub     ecx, eax
+        cmp     ecx, 80
+        jge     .ok
+        mov     ecx, 80
+.ok:
+        mov     [drop_ms], ecx
+        ret
+
+; -------------------------------------------------------------------
+; draw_gameover : overlay the GAME OVER banner across the field.
+; -------------------------------------------------------------------
+draw_gameover:
+        sub     rsp, 56
+        mov     ecx, FIELD_ROW0 + 9
+        mov     edx, FIELD_COL0 + 6
+        call    move_cursor
+        lea     rdx, [msg_over]
+        mov     r8d, over_len
+        call    write_str
         add     rsp, 56
         ret
 
