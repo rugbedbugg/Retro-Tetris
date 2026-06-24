@@ -748,6 +748,7 @@ step_down:
         ret
 .lock:
         call    lock_piece
+        call    clear_lines
         call    spawn_piece
         call    copy_cur_to_tst
         call    collides
@@ -810,8 +811,14 @@ game_init:
         mov     dword [grav_acc], 0
         mov     byte  [game_over], 0
         mov     byte  [quit_flag], 0
-        mov     dword [seed], 0x9E3779B1
 
+        ; seed the RNG from the millisecond clock (never zero)
+        call    GetTickCount64
+        mov     [seed], eax
+        cmp     dword [seed], 0
+        jne     .seeded
+        mov     dword [seed], 1
+.seeded:
         call    rng_piece
         mov     [next_id], eax
         call    spawn_piece
@@ -922,5 +929,89 @@ render:
         mov     eax, [score]
         call    print_uint
 
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; remove_row : delete board row ECX by shifting every row above it
+;   down one, then clearing the top row. Leaf.
+; -------------------------------------------------------------------
+remove_row:
+        mov     r8d, ecx            ; i = row to remove
+.shift:
+        test    r8d, r8d
+        jz      .top
+        lea     rsi, [board]        ; src = row i-1
+        mov     eax, r8d
+        dec     eax
+        imul    eax, eax, 10
+        add     rsi, rax
+        lea     rdi, [board]        ; dest = row i
+        mov     eax, r8d
+        imul    eax, eax, 10
+        add     rdi, rax
+        mov     ecx, 10
+        cld
+        rep     movsb               ; copy 10 cells downward
+        dec     r8d
+        jmp     .shift
+.top:
+        lea     rdi, [board]        ; clear the now-empty top row
+        xor     eax, eax
+        mov     ecx, 10
+        rep     stosb
+        ret
+
+; -------------------------------------------------------------------
+; clear_lines : remove every full row, then update the line count,
+;   score, level and gravity speed. Cleared rows this call go in R12.
+; -------------------------------------------------------------------
+clear_lines:
+        sub     rsp, 56
+        xor     r12d, r12d          ; lines cleared this call
+        mov     r10d, 19            ; scan from the bottom row upward
+.check:
+        cmp     r10d, 0
+        jl      .score
+        mov     eax, r10d
+        imul    eax, eax, 10
+        mov     esi, eax            ; base index of this row
+        xor     r11d, r11d
+.scan:
+        mov     eax, esi
+        add     eax, r11d
+        lea     r8, [board]
+        movzx   edx, byte [r8 + rax]
+        test    dl, dl
+        jz      .notfull            ; a hole -> row is not complete
+        inc     r11d
+        cmp     r11d, 10
+        jl      .scan
+        ; the row is full: remove it and re-test the same index
+        mov     ecx, r10d
+        call    remove_row
+        inc     dword [lines]
+        inc     r12d
+        jmp     .check
+.notfull:
+        dec     r10d
+        jmp     .check
+.score:
+        test    r12d, r12d
+        jz      .done
+        ; score += points_tbl[cleared] * level
+        lea     rcx, [points_tbl]
+        mov     eax, [rcx + r12*4]
+        imul    eax, dword [level]
+        add     [score], eax
+        ; level = lines / 10 + 1
+        mov     eax, [lines]
+        xor     edx, edx
+        mov     ecx, 10
+        div     ecx
+        inc     eax
+        mov     [level], eax
+        call    update_speed
+.done:
         add     rsp, 56
         ret
