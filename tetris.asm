@@ -301,6 +301,11 @@ main:
         sub     rax, rcx
         add     [grav_acc], eax
 
+        ; handle any pending keypresses
+        call    poll_input
+        cmp     byte [quit_flag], 1
+        je      .cleanup
+
         ; drop the piece once per elapsed gravity interval
 .gravity:
         mov     eax, [grav_acc]
@@ -646,6 +651,113 @@ spawn_piece:
         mov     dword [cur_rot], 0
         mov     dword [cur_x], 3
         mov     dword [cur_y], 0
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; poll_input : drain the console input queue (non-blocking) and act on
+;   any key-down events. Does nothing if the queue is empty.
+; -------------------------------------------------------------------
+poll_input:
+        sub     rsp, 56
+        mov     rcx, [hIn]
+        lea     rdx, [numEvents]
+        call    GetNumberOfConsoleInputEvents
+        mov     eax, [numEvents]
+        test    eax, eax
+        jz      .none               ; nothing waiting
+
+        mov     rcx, [hIn]
+        lea     rdx, [inbuf]
+        mov     r8d, 32
+        lea     r9, [numRead]
+        call    ReadConsoleInputA
+
+        mov     dword [poll_i], 0
+.rec:
+        mov     eax, [poll_i]
+        cmp     eax, [numRead]
+        jge     .none
+        imul    eax, eax, 20        ; INPUT_RECORD stride
+        lea     r11, [inbuf]
+        add     r11, rax
+        movzx   eax, word [r11]     ; EventType
+        cmp     eax, 1              ; KEY_EVENT
+        jne     .next
+        mov     eax, [r11 + 4]      ; bKeyDown
+        test    eax, eax
+        jz      .next               ; ignore key-release
+        movzx   eax, word [r11 + 10]; wVirtualKeyCode
+        call    dispatch_key
+.next:
+        inc     dword [poll_i]
+        jmp     .rec
+.none:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; dispatch_key : run the action bound to virtual-key code EAX.
+;   Arrow keys and the numeric-keypad layout both work.
+; -------------------------------------------------------------------
+dispatch_key:
+        sub     rsp, 56
+        mov     ecx, eax            ; keep the key; calls clobber EAX
+        cmp     ecx, 0x25           ; Left arrow
+        je      .left
+        cmp     ecx, 0x37           ; '7'
+        je      .left
+        cmp     ecx, 0x67           ; Numpad 7
+        je      .left
+        cmp     ecx, 0x27           ; Right arrow
+        je      .right
+        cmp     ecx, 0x39           ; '9'
+        je      .right
+        cmp     ecx, 0x69           ; Numpad 9
+        je      .right
+        cmp     ecx, 0x1B           ; Esc
+        je      .quit
+        cmp     ecx, 0x51           ; 'Q'
+        je      .quit
+        jmp     .done
+.left:
+        call    move_left
+        jmp     .done
+.right:
+        call    move_right
+        jmp     .done
+.quit:
+        mov     byte [quit_flag], 1
+.done:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; move_left / move_right : shift the piece one column if there is room.
+; -------------------------------------------------------------------
+move_left:
+        sub     rsp, 56
+        call    copy_cur_to_tst
+        dec     dword [tst_x]
+        call    collides
+        test    al, al
+        jnz     .blocked
+        mov     eax, [tst_x]
+        mov     [cur_x], eax
+.blocked:
+        add     rsp, 56
+        ret
+
+move_right:
+        sub     rsp, 56
+        call    copy_cur_to_tst
+        inc     dword [tst_x]
+        call    collides
+        test    al, al
+        jnz     .blocked
+        mov     eax, [tst_x]
+        mov     [cur_x], eax
+.blocked:
         add     rsp, 56
         ret
 
