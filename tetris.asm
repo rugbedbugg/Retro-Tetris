@@ -715,6 +715,12 @@ dispatch_key:
         je      .right
         cmp     ecx, 0x69           ; Numpad 9
         je      .right
+        cmp     ecx, 0x26           ; Up arrow
+        je      .rotate
+        cmp     ecx, 0x38           ; '8'
+        je      .rotate
+        cmp     ecx, 0x68           ; Numpad 8
+        je      .rotate
         cmp     ecx, 0x1B           ; Esc
         je      .quit
         cmp     ecx, 0x51           ; 'Q'
@@ -725,6 +731,9 @@ dispatch_key:
         jmp     .done
 .right:
         call    move_right
+        jmp     .done
+.rotate:
+        call    rotate
         jmp     .done
 .quit:
         mov     byte [quit_flag], 1
@@ -757,6 +766,25 @@ move_right:
         jnz     .blocked
         mov     eax, [tst_x]
         mov     [cur_x], eax
+.blocked:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; rotate : turn the piece 90 degrees clockwise if it still fits.
+; -------------------------------------------------------------------
+rotate:
+        sub     rsp, 56
+        call    copy_cur_to_tst
+        mov     eax, [cur_rot]
+        inc     eax
+        and     eax, 3              ; wrap 0..3
+        mov     [tst_rot], eax
+        call    collides
+        test    al, al
+        jnz     .blocked
+        mov     eax, [tst_rot]
+        mov     [cur_rot], eax
 .blocked:
         add     rsp, 56
         ret
