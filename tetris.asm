@@ -721,6 +721,14 @@ dispatch_key:
         je      .rotate
         cmp     ecx, 0x68           ; Numpad 8
         je      .rotate
+        cmp     ecx, 0x28           ; Down arrow
+        je      .soft
+        cmp     ecx, 0x34           ; '4'
+        je      .soft
+        cmp     ecx, 0x64           ; Numpad 4
+        je      .soft
+        cmp     ecx, 0x20           ; Space
+        je      .hard
         cmp     ecx, 0x1B           ; Esc
         je      .quit
         cmp     ecx, 0x51           ; 'Q'
@@ -734,6 +742,12 @@ dispatch_key:
         jmp     .done
 .rotate:
         call    rotate
+        jmp     .done
+.soft:
+        call    soft_drop
+        jmp     .done
+.hard:
+        call    hard_drop
         jmp     .done
 .quit:
         mov     byte [quit_flag], 1
@@ -786,6 +800,34 @@ rotate:
         mov     eax, [tst_rot]
         mov     [cur_rot], eax
 .blocked:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; soft_drop : nudge the piece down one row on demand.
+; -------------------------------------------------------------------
+soft_drop:
+        sub     rsp, 56
+        call    step_down
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; hard_drop : drop the piece straight to the bottom and lock it.
+; -------------------------------------------------------------------
+hard_drop:
+        sub     rsp, 56
+.fall:
+        call    copy_cur_to_tst
+        inc     dword [tst_y]
+        call    collides
+        test    al, al
+        jnz     .land               ; next row down is blocked
+        mov     eax, [tst_y]
+        mov     [cur_y], eax
+        jmp     .fall
+.land:
+        call    step_down           ; can no longer fall -> lock + spawn
         add     rsp, 56
         ret
 
