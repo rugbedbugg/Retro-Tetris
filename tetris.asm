@@ -785,7 +785,9 @@ move_right:
         ret
 
 ; -------------------------------------------------------------------
-; rotate : turn the piece 90 degrees clockwise if it still fits.
+; rotate : turn the piece 90 degrees clockwise. If the turned piece
+;   overlaps a wall, try nudging it one column right, then one column
+;   left of its origin (a simple wall kick) before giving up.
 ; -------------------------------------------------------------------
 rotate:
         sub     rsp, 56
@@ -794,12 +796,27 @@ rotate:
         inc     eax
         and     eax, 3              ; wrap 0..3
         mov     [tst_rot], eax
+
         call    collides
         test    al, al
-        jnz     .blocked
+        jz      .commit             ; fits where it stands
+        inc     dword [tst_x]       ; kick one column right
+        call    collides
+        test    al, al
+        jz      .commit
+        mov     eax, [cur_x]        ; kick one column left of the origin
+        dec     eax
+        mov     [tst_x], eax
+        call    collides
+        test    al, al
+        jz      .commit
+        add     rsp, 56             ; no room even after kicking
+        ret
+.commit:
         mov     eax, [tst_rot]
         mov     [cur_rot], eax
-.blocked:
+        mov     eax, [tst_x]        ; keep any kick offset
+        mov     [cur_x], eax
         add     rsp, 56
         ret
 
