@@ -27,6 +27,8 @@
 FIELD_ROW0      equ 3               ; screen row of the first board row
 FIELD_COL0      equ 20             ; screen col of the first board cell
 STAT_COL        equ 9              ; column where stat numbers start
+NEXT_ROW        equ 12             ; top row of the next-piece preview
+NEXT_COL        equ 44             ; left column of the next-piece preview
 
 ; ===================================================================
 ; Read-only data
@@ -65,6 +67,8 @@ c_line4:        db "SPACE  HARD DROP"
 c_line4_len     equ $ - c_line4
 c_line5:        db "Q/ESC  QUIT"
 c_line5_len     equ $ - c_line5
+lbl_next:       db "NEXT"
+lbl_next_len    equ $ - lbl_next
 
 msg_over:       db "GAME OVER"
 over_len        equ $ - msg_over
@@ -445,6 +449,13 @@ draw_static:
         call    move_cursor
         lea     rdx, [c_line5]
         mov     r8d, c_line5_len
+        call    write_str
+
+        mov     ecx, NEXT_ROW - 1
+        mov     edx, NEXT_COL
+        call    move_cursor
+        lea     rdx, [lbl_next]
+        mov     r8d, lbl_next_len
         call    write_str
 
         add     rsp, 56
@@ -1128,6 +1139,53 @@ render:
         mov     eax, [score]
         call    print_uint
 
+        call    draw_next
+
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; draw_next : show the queued piece (rotation 0) in the preview box.
+; -------------------------------------------------------------------
+draw_next:
+        sub     rsp, 56
+        mov     eax, [next_id]      ; preview the queued piece...
+        mov     [tst_id], eax
+        mov     dword [tst_rot], 0  ; ...in its spawn orientation
+
+        xor     r13d, r13d          ; row within the 4x4 box
+.nrow:
+        mov     ecx, r13d
+        add     ecx, NEXT_ROW
+        mov     edx, NEXT_COL
+        call    move_cursor
+
+        mov     r10d, r13d          ; piece_cell reads row in R10
+        xor     r11d, r11d          ; col within the 4x4 box
+        lea     rdi, [rowbuf]
+.ncell:
+        call    piece_cell
+        test    al, al
+        jz      .nempty
+        mov     byte [rdi], '['
+        mov     byte [rdi + 1], ']'
+        jmp     .nput
+.nempty:
+        mov     byte [rdi], ' '     ; blank, not a dot, outside the field
+        mov     byte [rdi + 1], ' '
+.nput:
+        add     rdi, 2
+        inc     r11d
+        cmp     r11d, 4
+        jl      .ncell
+
+        lea     rdx, [rowbuf]
+        mov     r8d, 8              ; 4 cells x 2 chars
+        call    write_str
+
+        inc     r13d
+        cmp     r13d, 4
+        jl      .nrow
         add     rsp, 56
         ret
 
