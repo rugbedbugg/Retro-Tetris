@@ -837,6 +837,7 @@ rotate:
 soft_drop:
         sub     rsp, 56
         call    step_down
+        mov     dword [grav_acc], 0 ; restart the gravity timer
         add     rsp, 56
         ret
 
@@ -856,6 +857,7 @@ hard_drop:
         jmp     .fall
 .land:
         call    step_down           ; can no longer fall -> lock + spawn
+        mov     dword [grav_acc], 0 ; the fresh piece starts its fall clean
         add     rsp, 56
         ret
 
