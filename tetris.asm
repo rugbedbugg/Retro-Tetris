@@ -76,7 +76,17 @@ lbl_next_len    equ $ - lbl_next
 msg_over:       db "GAME OVER"
 over_len        equ $ - msg_over
 
+; ESC[2J clear, ESC[H home (green stays set from startup)
+clear_seq:      db 27,"[2J",27,"[H"
+clear_len       equ $ - clear_seq
+
 fname_scores:   db "scores.txt",0
+sb_run_lbl:     db "THIS RUN  SCORE"
+sb_run_len      equ $ - sb_run_lbl
+sb_header:      db "RANK   SCORE     LINES   LEVEL"
+sb_header_len   equ $ - sb_header
+sb_prompt:      db "PLAY AGAIN?   Y = YES    N = QUIT"
+sb_prompt_len   equ $ - sb_prompt
 
 ; -------------------------------------------------------------------
 ; Tetromino shapes: 7 pieces, 4 rotations each, as 4x4 cell grids.
@@ -303,6 +313,7 @@ main:
         xor     edx, edx            ; clears LINE_INPUT and ECHO_INPUT
         call    SetConsoleMode
 
+.new_game:
         call    draw_static
         call    game_init
         call    update_speed
@@ -343,9 +354,11 @@ main:
         jmp     .loop
 
 .over:
-        call    record_score        ; save this run before the banner
-        call    draw_gameover
-        call    wait_key
+        call    record_score        ; merge this run into the saved top 10
+        call    show_scoreboard     ; game-over screen with the ranked table
+        call    ask_play_again
+        test    al, al
+        jnz     .new_game           ; Y -> start a fresh game
 
 .cleanup:
         lea     rdx, [cleanup_seq]
@@ -1004,20 +1017,6 @@ update_speed:
         ret
 
 ; -------------------------------------------------------------------
-; draw_gameover : overlay the GAME OVER banner across the field.
-; -------------------------------------------------------------------
-draw_gameover:
-        sub     rsp, 56
-        mov     ecx, FIELD_ROW0 + 9
-        mov     edx, FIELD_COL0 + 6
-        call    move_cursor
-        lea     rdx, [msg_over]
-        mov     r8d, over_len
-        call    write_str
-        add     rsp, 56
-        ret
-
-; -------------------------------------------------------------------
 ; game_init : clear the board and state, then spawn the first piece.
 ; -------------------------------------------------------------------
 game_init:
@@ -1551,3 +1550,135 @@ save_scores:
         add     rsp, 56
         ret
 
+; -------------------------------------------------------------------
+; show_scoreboard : clear the screen and draw the game-over screen with
+;   this run's score and the ranked top-10 table.
+; -------------------------------------------------------------------
+show_scoreboard:
+        sub     rsp, 56
+        lea     rdx, [clear_seq]
+        mov     r8d, clear_len
+        call    write_str
+
+        mov     ecx, 2              ; title
+        mov     edx, 6
+        call    move_cursor
+        lea     rdx, [msg_over]
+        mov     r8d, over_len
+        call    write_str
+
+        mov     ecx, 4              ; this run's score
+        mov     edx, 6
+        call    move_cursor
+        lea     rdx, [sb_run_lbl]
+        mov     r8d, sb_run_len
+        call    write_str
+        mov     ecx, 4
+        mov     edx, 23
+        call    move_cursor
+        mov     eax, [score]
+        call    print_uint
+
+        mov     ecx, 6              ; table header
+        mov     edx, 6
+        call    move_cursor
+        lea     rdx, [sb_header]
+        mov     r8d, sb_header_len
+        call    write_str
+
+        xor     r13d, r13d          ; entry index
+.row:
+        cmp     r13d, [sb_count]
+        jge     .prompt
+        cmp     r13d, 10
+        jge     .prompt
+
+        mov     ecx, r13d           ; rank number
+        add     ecx, 7
+        mov     edx, 6
+        call    move_cursor
+        lea     eax, [r13 + 1]
+        call    print_uint
+
+        mov     ecx, r13d           ; score
+        add     ecx, 7
+        mov     edx, 13
+        call    move_cursor
+        lea     r8, [sb_score]
+        mov     eax, [r8 + r13*4]
+        call    print_uint
+
+        mov     ecx, r13d           ; lines
+        add     ecx, 7
+        mov     edx, 22
+        call    move_cursor
+        lea     r8, [sb_lines]
+        mov     eax, [r8 + r13*4]
+        call    print_uint
+
+        mov     ecx, r13d           ; level
+        add     ecx, 7
+        mov     edx, 30
+        call    move_cursor
+        lea     r8, [sb_level]
+        mov     eax, [r8 + r13*4]
+        call    print_uint
+
+        inc     r13d
+        jmp     .row
+.prompt:
+        mov     ecx, 20
+        mov     edx, 6
+        call    move_cursor
+        lea     rdx, [sb_prompt]
+        mov     r8d, sb_prompt_len
+        call    write_str
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; ask_play_again : block until Y or N/Q/Esc. Returns AL = 1 to replay,
+;   0 to quit.
+; -------------------------------------------------------------------
+ask_play_again:
+        sub     rsp, 56
+.wait:
+        mov     rcx, [hIn]
+        lea     rdx, [inbuf]
+        mov     r8d, 32
+        lea     r9, [numRead]
+        call    ReadConsoleInputA
+        xor     r10d, r10d
+.scan:
+        cmp     r10d, [numRead]
+        jge     .wait
+        mov     eax, r10d
+        imul    eax, eax, 20
+        lea     r11, [inbuf]
+        add     r11, rax
+        movzx   eax, word [r11]     ; EventType
+        cmp     eax, 1
+        jne     .next
+        mov     eax, [r11 + 4]      ; bKeyDown
+        test    eax, eax
+        jz      .next
+        movzx   eax, word [r11 + 10]; wVirtualKeyCode
+        cmp     eax, 0x59           ; 'Y'
+        je      .yes
+        cmp     eax, 0x4E           ; 'N'
+        je      .no
+        cmp     eax, 0x1B           ; Esc
+        je      .no
+        cmp     eax, 0x51           ; 'Q'
+        je      .no
+.next:
+        inc     r10d
+        jmp     .scan
+.yes:
+        mov     al, 1
+        add     rsp, 56
+        ret
+.no:
+        xor     al, al
+        add     rsp, 56
+        ret
