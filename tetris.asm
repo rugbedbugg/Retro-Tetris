@@ -19,6 +19,9 @@
         extern  GetNumberOfConsoleInputEvents
         extern  GetTickCount64
         extern  Sleep
+        extern  CreateFileA
+        extern  ReadFile
+        extern  CloseHandle
         extern  ExitProcess
 
 ; -------------------------------------------------------------------
@@ -72,6 +75,8 @@ lbl_next_len    equ $ - lbl_next
 
 msg_over:       db "GAME OVER"
 over_len        equ $ - msg_over
+
+fname_scores:   db "scores.txt",0
 
 ; -------------------------------------------------------------------
 ; Tetromino shapes: 7 pieces, 4 rotations each, as 4x4 cell grids.
@@ -240,6 +245,10 @@ tst_y:          dd 0
 game_over:      db 0
 quit_flag:      db 0
 
+sb_handle:      dq 0               ; scores file handle
+sbtext_len:     dq 0               ; bytes to write back to the file
+sb_count:       dd 0               ; number of scoreboard entries in memory
+
 ; ===================================================================
 ; Uninitialised buffers
 ; ===================================================================
@@ -251,6 +260,11 @@ inbuf:          resb 640           ; 32 INPUT_RECORDs x 20 bytes
 board:          resb 200           ; 10 x 20 cells, 0 = empty, 1..7 = piece
 scratch:        resb 200           ; board + falling piece, built each frame
 rowbuf:         resb 64            ; one rendered board row
+filebuf:        resb 4096          ; raw scores.txt contents while parsing
+sbtext:         resb 512           ; scores.txt contents while writing back
+sb_score:       resd 40            ; scoreboard entries (parallel arrays)
+sb_lines:       resd 40
+sb_level:       resd 40
 
 ; ===================================================================
 ; Code
@@ -329,7 +343,7 @@ main:
         jmp     .loop
 
 .over:
-        call    render
+        call    record_score        ; save this run before the banner
         call    draw_gameover
         call    wait_key
 
@@ -1274,3 +1288,266 @@ clear_lines:
 .done:
         add     rsp, 56
         ret
+
+; ===================================================================
+; Scoreboard : persist a ranked top-10 of past runs in scores.txt
+; ===================================================================
+
+; -------------------------------------------------------------------
+; record_score : load the saved scores, add this run, sort, keep the
+;   top 10, and write them back.
+; -------------------------------------------------------------------
+record_score:
+        sub     rsp, 56
+        call    load_scores
+        mov     ecx, [sb_count]
+        cmp     ecx, 40
+        jge     .sorted             ; table full, don't append
+        lea     r8, [sb_score]      ; append the current run
+        mov     eax, [score]
+        mov     [r8 + rcx*4], eax
+        lea     r8, [sb_lines]
+        mov     eax, [lines]
+        mov     [r8 + rcx*4], eax
+        lea     r8, [sb_level]
+        mov     eax, [level]
+        mov     [r8 + rcx*4], eax
+        inc     dword [sb_count]
+.sorted:
+        call    sort_scores
+        cmp     dword [sb_count], 10
+        jle     .save
+        mov     dword [sb_count], 10; keep only the best ten
+.save:
+        call    save_scores
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; load_scores : read scores.txt into the in-memory arrays. A missing
+;   file just means an empty board.
+; -------------------------------------------------------------------
+load_scores:
+        sub     rsp, 56
+        mov     dword [sb_count], 0
+        lea     rcx, [fname_scores]
+        mov     edx, 0x80000000     ; GENERIC_READ
+        mov     r8d, 1              ; FILE_SHARE_READ
+        xor     r9, r9
+        mov     qword [rsp + 32], 3 ; OPEN_EXISTING
+        mov     qword [rsp + 40], 0x80  ; FILE_ATTRIBUTE_NORMAL
+        mov     qword [rsp + 48], 0
+        call    CreateFileA
+        cmp     rax, -1             ; INVALID_HANDLE_VALUE -> no file
+        je      .none
+        mov     [sb_handle], rax
+
+        mov     rcx, [sb_handle]
+        lea     rdx, [filebuf]
+        mov     r8d, 4095
+        lea     r9, [numRead]
+        mov     qword [rsp + 32], 0 ; lpOverlapped = NULL
+        call    ReadFile
+        mov     eax, [numRead]      ; NUL-terminate the buffer
+        lea     rcx, [filebuf]
+        mov     byte [rcx + rax], 0
+
+        mov     rcx, [sb_handle]
+        call    CloseHandle
+        call    parse_scores
+.none:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; parse_scores : read whitespace-separated (score,lines,level) triples
+;   out of filebuf into the arrays. RSI walks the buffer.
+; -------------------------------------------------------------------
+parse_scores:
+        sub     rsp, 56
+        lea     rsi, [filebuf]
+.rec:
+        cmp     dword [sb_count], 40
+        jge     .done
+        call    skip_nondigit
+        mov     al, [rsi]           ; a record must start with a digit
+        cmp     al, '0'
+        jb      .done               ; NUL or trailing junk -> stop
+        cmp     al, '9'
+        ja      .done
+        call    parse_uint          ; score
+        mov     ecx, [sb_count]
+        lea     r8, [sb_score]
+        mov     [r8 + rcx*4], eax
+        call    skip_nondigit
+        call    parse_uint          ; lines
+        mov     ecx, [sb_count]
+        lea     r8, [sb_lines]
+        mov     [r8 + rcx*4], eax
+        call    skip_nondigit
+        call    parse_uint          ; level
+        mov     ecx, [sb_count]
+        lea     r8, [sb_level]
+        mov     [r8 + rcx*4], eax
+        inc     dword [sb_count]
+        jmp     .rec
+.done:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; skip_nondigit : advance RSI past any non-digit bytes, stopping at a
+;   digit or the NUL terminator. Leaf.
+; -------------------------------------------------------------------
+skip_nondigit:
+        mov     al, [rsi]
+        test    al, al
+        jz      .stop
+        cmp     al, '0'
+        jb      .skip
+        cmp     al, '9'
+        ja      .skip
+        ret                         ; sitting on a digit
+.skip:
+        inc     rsi
+        jmp     skip_nondigit
+.stop:
+        ret
+
+; -------------------------------------------------------------------
+; parse_uint : read a decimal number at RSI into EAX, advancing RSI.
+;   Leaf.
+; -------------------------------------------------------------------
+parse_uint:
+        xor     eax, eax
+.next:
+        mov     dl, [rsi]
+        cmp     dl, '0'
+        jb      .stop
+        cmp     dl, '9'
+        ja      .stop
+        imul    eax, eax, 10
+        movzx   edx, dl
+        sub     edx, '0'
+        add     eax, edx
+        inc     rsi
+        jmp     .next
+.stop:
+        ret
+
+; -------------------------------------------------------------------
+; sort_scores : selection sort the entries by score, highest first.
+; -------------------------------------------------------------------
+sort_scores:
+        sub     rsp, 56
+        xor     r10d, r10d          ; i
+.outer:
+        mov     eax, [sb_count]
+        dec     eax
+        cmp     r10d, eax
+        jge     .done               ; i >= count-1
+        mov     r11d, r10d          ; index of the largest score so far
+        lea     ecx, [r10 + 1]      ; j = i+1
+.inner:
+        cmp     ecx, [sb_count]
+        jge     .placed
+        lea     r8, [sb_score]
+        mov     eax, [r8 + rcx*4]
+        mov     edx, [r8 + r11*4]
+        cmp     eax, edx
+        jle     .nextj
+        mov     r11d, ecx           ; found a larger score
+.nextj:
+        inc     ecx
+        jmp     .inner
+.placed:
+        cmp     r11d, r10d
+        je      .nexti
+        call    swap_entries
+.nexti:
+        inc     r10d
+        jmp     .outer
+.done:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; swap_entries : swap scoreboard entries R10 and R11 across all three
+;   parallel arrays. Leaf. Preserves R10/R11.
+; -------------------------------------------------------------------
+swap_entries:
+        lea     r8, [sb_score]
+        mov     eax, [r8 + r10*4]
+        mov     edx, [r8 + r11*4]
+        mov     [r8 + r10*4], edx
+        mov     [r8 + r11*4], eax
+        lea     r8, [sb_lines]
+        mov     eax, [r8 + r10*4]
+        mov     edx, [r8 + r11*4]
+        mov     [r8 + r10*4], edx
+        mov     [r8 + r11*4], eax
+        lea     r8, [sb_level]
+        mov     eax, [r8 + r10*4]
+        mov     edx, [r8 + r11*4]
+        mov     [r8 + r10*4], edx
+        mov     [r8 + r11*4], eax
+        ret
+
+; -------------------------------------------------------------------
+; save_scores : format the entries as "score lines level" lines and
+;   overwrite scores.txt.
+; -------------------------------------------------------------------
+save_scores:
+        sub     rsp, 56
+        lea     rdi, [sbtext]       ; build the file text
+        xor     r10d, r10d
+.line:
+        cmp     r10d, [sb_count]
+        jge     .write
+        lea     r8, [sb_score]
+        mov     eax, [r8 + r10*4]
+        call    u32_to_ascii
+        mov     byte [rdi], ' '
+        inc     rdi
+        lea     r8, [sb_lines]
+        mov     eax, [r8 + r10*4]
+        call    u32_to_ascii
+        mov     byte [rdi], ' '
+        inc     rdi
+        lea     r8, [sb_level]
+        mov     eax, [r8 + r10*4]
+        call    u32_to_ascii
+        mov     byte [rdi], 10      ; newline
+        inc     rdi
+        inc     r10d
+        jmp     .line
+.write:
+        lea     rax, [sbtext]
+        sub     rdi, rax            ; total byte count
+        mov     [sbtext_len], rdi
+
+        lea     rcx, [fname_scores]
+        mov     edx, 0x40000000     ; GENERIC_WRITE
+        xor     r8d, r8d            ; no sharing
+        xor     r9, r9
+        mov     qword [rsp + 32], 2 ; CREATE_ALWAYS
+        mov     qword [rsp + 40], 0x80
+        mov     qword [rsp + 48], 0
+        call    CreateFileA
+        cmp     rax, -1
+        je      .done
+        mov     [sb_handle], rax
+
+        mov     rcx, [sb_handle]
+        lea     rdx, [sbtext]
+        mov     r8d, [sbtext_len]
+        lea     r9, [dwWritten]
+        mov     qword [rsp + 32], 0
+        call    WriteFile
+
+        mov     rcx, [sb_handle]
+        call    CloseHandle
+.done:
+        add     rsp, 56
+        ret
+

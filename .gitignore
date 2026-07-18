@@ -1,3 +1,6 @@
 # Build artifacts
 *.obj
 *.exe
+
+# Runtime data
+scores.txt
