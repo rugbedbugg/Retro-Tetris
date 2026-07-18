@@ -32,6 +32,8 @@ FIELD_COL0      equ 20             ; screen col of the first board cell
 STAT_COL        equ 9              ; column where stat numbers start
 NEXT_ROW        equ 12             ; top row of the next-piece preview
 NEXT_COL        equ 44             ; left column of the next-piece preview
+HS_ROW          equ 17             ; top row of the live high-score panel
+HS_COL          equ 44             ; left column of the live high-score panel
 
 ; ===================================================================
 ; Read-only data
@@ -72,6 +74,8 @@ c_line5:        db "Q/ESC  QUIT"
 c_line5_len     equ $ - c_line5
 lbl_next:       db "NEXT"
 lbl_next_len    equ $ - lbl_next
+lbl_high:       db "HIGH SCORES"
+lbl_high_len    equ $ - lbl_high
 
 msg_over:       db "GAME OVER"
 over_len        equ $ - msg_over
@@ -314,8 +318,8 @@ main:
         call    SetConsoleMode
 
 .new_game:
-        call    draw_static
-        call    game_init
+        call    game_init           ; loads high scores, then resets state
+        call    draw_static         ; frame, panels and live high scores
         call    update_speed
 
         call    GetTickCount64
@@ -485,6 +489,49 @@ draw_static:
         mov     r8d, lbl_next_len
         call    write_str
 
+        call    draw_highscores
+
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; draw_highscores : list the persisted top scores beside the board so
+;   the rankings are visible during play. Uses the loaded sb_* arrays.
+; -------------------------------------------------------------------
+draw_highscores:
+        sub     rsp, 56
+        mov     ecx, HS_ROW
+        mov     edx, HS_COL
+        call    move_cursor
+        lea     rdx, [lbl_high]
+        mov     r8d, lbl_high_len
+        call    write_str
+
+        xor     r13d, r13d          ; entry index
+.row:
+        cmp     r13d, [sb_count]
+        jge     .done
+        cmp     r13d, 5             ; show the top five live
+        jge     .done
+
+        mov     ecx, r13d           ; rank
+        add     ecx, HS_ROW + 1
+        mov     edx, HS_COL
+        call    move_cursor
+        lea     eax, [r13 + 1]
+        call    print_uint
+
+        mov     ecx, r13d           ; score
+        add     ecx, HS_ROW + 1
+        mov     edx, HS_COL + 3
+        call    move_cursor
+        lea     r8, [sb_score]
+        mov     eax, [r8 + r13*4]
+        call    print_uint
+
+        inc     r13d
+        jmp     .row
+.done:
         add     rsp, 56
         ret
 
@@ -1021,6 +1068,7 @@ update_speed:
 ; -------------------------------------------------------------------
 game_init:
         sub     rsp, 56
+        call    load_scores         ; populate the live high-score panel
         lea     r8, [board]
         xor     eax, eax
 .clr:
