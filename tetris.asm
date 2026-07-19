@@ -79,6 +79,8 @@ c_line4:        db "SPACE  HARD DROP"
 c_line4_len     equ $ - c_line4
 c_line5:        db "Q/ESC  QUIT"
 c_line5_len     equ $ - c_line5
+c_line6:        db "P      PAUSE"
+c_line6_len     equ $ - c_line6
 lbl_next:       db "NEXT"
 lbl_next_len    equ $ - lbl_next
 lbl_high:       db "HIGH SCORES"
@@ -86,6 +88,8 @@ lbl_high_len    equ $ - lbl_high
 
 msg_over:       db "GAME OVER"
 over_len        equ $ - msg_over
+msg_paused:     db "PAUSED"
+paused_len      equ $ - msg_paused
 
 ; ESC[2J clear, ESC[H home (green stays set from startup)
 clear_seq:      db 27,"[2J",27,"[H"
@@ -265,6 +269,7 @@ tst_y:          dd 0
 
 game_over:      db 0
 quit_flag:      db 0
+paused:         db 0               ; 1 while the game is paused
 
 sb_handle:      dq 0               ; scores file handle
 sbtext_len:     dq 0               ; bytes to write back to the file
@@ -350,17 +355,21 @@ main:
 .loop:
         call    check_resize        ; re-centre and repaint on a resize
 
-        ; accumulate the time that passed since the previous frame
+        ; measure the time that passed since the previous frame
         call    GetTickCount64
         mov     rcx, [last_tick]
         mov     [last_tick], rax
         sub     rax, rcx
-        add     [grav_acc], eax
+        mov     r14d, eax           ; elapsed ms, kept across poll_input
 
-        ; handle any pending keypresses
+        ; handle any pending keypresses (pause / quit included)
         call    poll_input
         cmp     byte [quit_flag], 1
         je      .cleanup
+        cmp     byte [paused], 1
+        je      .draw_pause
+
+        add     [grav_acc], r14d
 
         ; drop the piece once per elapsed gravity interval
 .gravity:
@@ -377,6 +386,13 @@ main:
 .draw:
         call    render
         mov     ecx, 16             ; ~60 polls/sec
+        call    Sleep
+        jmp     .loop
+
+.draw_pause:
+        call    render              ; board stays visible but frozen
+        call    draw_paused         ; overlay the PAUSED banner
+        mov     ecx, 16
         call    Sleep
         jmp     .loop
 
@@ -504,6 +520,12 @@ draw_static:
         lea     rdx, [c_line5]
         mov     r8d, c_line5_len
         call    write_str
+        mov     ecx, 10
+        mov     edx, 44
+        call    move_cursor
+        lea     rdx, [c_line6]
+        mov     r8d, c_line6_len
+        call    write_str
 
         mov     ecx, NEXT_ROW - 1
         mov     edx, NEXT_COL
@@ -555,6 +577,20 @@ draw_highscores:
         inc     r13d
         jmp     .row
 .done:
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; draw_paused : overlay the PAUSED banner across the middle of the field.
+; -------------------------------------------------------------------
+draw_paused:
+        sub     rsp, 56
+        mov     ecx, FIELD_ROW0 + 9
+        mov     edx, FIELD_COL0 + 7
+        call    move_cursor
+        lea     rdx, [msg_paused]
+        mov     r8d, paused_len
+        call    write_str
         add     rsp, 56
         ret
 
@@ -888,6 +924,18 @@ poll_input:
 dispatch_key:
         sub     rsp, 56
         mov     ecx, eax            ; keep the key; calls clobber EAX
+
+        ; pause and quit respond whether or not the game is paused
+        cmp     ecx, 0x50           ; 'P'
+        je      .pause
+        cmp     ecx, 0x1B           ; Esc
+        je      .quit
+        cmp     ecx, 0x51           ; 'Q'
+        je      .quit
+
+        cmp     byte [paused], 1    ; ignore movement while paused
+        je      .done
+
         cmp     ecx, 0x25           ; Left arrow
         je      .left
         cmp     ecx, 0x37           ; '7'
@@ -914,10 +962,6 @@ dispatch_key:
         je      .soft
         cmp     ecx, 0x20           ; Space
         je      .hard
-        cmp     ecx, 0x1B           ; Esc
-        je      .quit
-        cmp     ecx, 0x51           ; 'Q'
-        je      .quit
         jmp     .done
 .left:
         call    move_left
@@ -933,6 +977,9 @@ dispatch_key:
         jmp     .done
 .hard:
         call    hard_drop
+        jmp     .done
+.pause:
+        xor     byte [paused], 1    ; toggle pause on/off
         jmp     .done
 .quit:
         mov     byte [quit_flag], 1
@@ -1184,6 +1231,7 @@ game_init:
         mov     dword [grav_acc], 0
         mov     byte  [game_over], 0
         mov     byte  [quit_flag], 0
+        mov     byte  [paused], 0
 
         ; seed the RNG from the millisecond clock (never zero)
         call    GetTickCount64
