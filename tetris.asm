@@ -1147,18 +1147,18 @@ step_down:
 
 ; -------------------------------------------------------------------
 ; update_speed : set the gravity interval from the current level.
-;   Starts at 800 ms and shortens by 70 ms per level, floored at 80.
+;   Starts at 550 ms and shortens by 45 ms per level, floored at 70.
 ;   Leaf.
 ; -------------------------------------------------------------------
 update_speed:
         mov     eax, [level]
         dec     eax
-        imul    eax, eax, 70
-        mov     ecx, 800
+        imul    eax, eax, 45
+        mov     ecx, 550
         sub     ecx, eax
-        cmp     ecx, 80
+        cmp     ecx, 70
         jge     .ok
-        mov     ecx, 80
+        mov     ecx, 70
 .ok:
         mov     [drop_ms], ecx
         ret
@@ -1180,7 +1180,7 @@ game_init:
         mov     dword [score], 0
         mov     dword [lines], 0
         mov     dword [level], 1
-        mov     dword [drop_ms], 800
+        mov     dword [drop_ms], 550
         mov     dword [grav_acc], 0
         mov     byte  [game_over], 0
         mov     byte  [quit_flag], 0
