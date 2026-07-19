@@ -22,6 +22,7 @@
         extern  CreateFileA
         extern  ReadFile
         extern  CloseHandle
+        extern  GetConsoleScreenBufferInfo
         extern  ExitProcess
 
 ; -------------------------------------------------------------------
@@ -34,6 +35,12 @@ NEXT_ROW        equ 12             ; top row of the next-piece preview
 NEXT_COL        equ 44             ; left column of the next-piece preview
 HS_ROW          equ 17             ; top row of the live high-score panel
 HS_COL          equ 44             ; left column of the live high-score panel
+
+; Bounding box of the whole layout, used to centre it in the terminal.
+LAY_MINC        equ 2
+LAY_MAXC        equ 60
+LAY_MINR        equ 2
+LAY_MAXR        equ 23
 
 ; ===================================================================
 ; Read-only data
@@ -263,6 +270,13 @@ sb_handle:      dq 0               ; scores file handle
 sbtext_len:     dq 0               ; bytes to write back to the file
 sb_count:       dd 0               ; number of scoreboard entries in memory
 
+org_x:          dd 0               ; column offset that centres the layout
+org_y:          dd 0               ; row offset that centres the layout
+term_w:         dd 0               ; current terminal width (columns)
+term_h:         dd 0               ; current terminal height (rows)
+last_w:         dd 0               ; terminal size at the previous frame,
+last_h:         dd 0               ;   used to detect a resize
+
 ; ===================================================================
 ; Uninitialised buffers
 ; ===================================================================
@@ -276,6 +290,7 @@ scratch:        resb 200           ; board + falling piece, built each frame
 rowbuf:         resb 64            ; one rendered board row
 filebuf:        resb 4096          ; raw scores.txt contents while parsing
 sbtext:         resb 512           ; scores.txt contents while writing back
+csbi:           resb 24            ; CONSOLE_SCREEN_BUFFER_INFO
 sb_score:       resd 40            ; scoreboard entries (parallel arrays)
 sb_lines:       resd 40
 sb_level:       resd 40
@@ -318,6 +333,12 @@ main:
         call    SetConsoleMode
 
 .new_game:
+        call    get_term_size       ; measure the terminal and centre
+        mov     eax, [term_w]
+        mov     [last_w], eax
+        mov     eax, [term_h]
+        mov     [last_h], eax
+        call    compute_origin
         call    game_init           ; loads high scores, then resets state
         call    draw_static         ; frame, panels and live high scores
         call    update_speed
@@ -327,6 +348,8 @@ main:
         mov     dword [grav_acc], 0
 
 .loop:
+        call    check_resize        ; re-centre and repaint on a resize
+
         ; accumulate the time that passed since the previous frame
         call    GetTickCount64
         mov     rcx, [last_tick]
@@ -536,6 +559,81 @@ draw_highscores:
         ret
 
 ; -------------------------------------------------------------------
+; get_term_size : read the visible terminal width/height into term_w /
+;   term_h. Falls back to the layout size if output is not a console.
+; -------------------------------------------------------------------
+get_term_size:
+        sub     rsp, 56
+        mov     rcx, [hOut]
+        lea     rdx, [csbi]
+        call    GetConsoleScreenBufferInfo
+        test    eax, eax
+        jz      .fail
+        movsx   eax, word [csbi + 14]   ; srWindow.Right
+        movsx   ecx, word [csbi + 10]   ; srWindow.Left
+        sub     eax, ecx
+        inc     eax
+        mov     [term_w], eax
+        movsx   eax, word [csbi + 16]   ; srWindow.Bottom
+        movsx   ecx, word [csbi + 12]   ; srWindow.Top
+        sub     eax, ecx
+        inc     eax
+        mov     [term_h], eax
+        add     rsp, 56
+        ret
+.fail:
+        mov     dword [term_w], LAY_MAXC + 2
+        mov     dword [term_h], LAY_MAXR + 2
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
+; compute_origin : centre the layout box in the terminal, giving the
+;   row/col offset added by move_cursor. Never negative. Leaf.
+; -------------------------------------------------------------------
+compute_origin:
+        mov     eax, [term_w]
+        add     eax, 1 - LAY_MINC - LAY_MAXC
+        sar     eax, 1
+        jns     .okx
+        xor     eax, eax
+.okx:
+        mov     [org_x], eax
+        mov     eax, [term_h]
+        add     eax, 1 - LAY_MINR - LAY_MAXR
+        sar     eax, 1
+        jns     .oky
+        xor     eax, eax
+.oky:
+        mov     [org_y], eax
+        ret
+
+; -------------------------------------------------------------------
+; check_resize : if the terminal size changed, re-centre and repaint
+;   the static frame. Called once per frame.
+; -------------------------------------------------------------------
+check_resize:
+        sub     rsp, 56
+        call    get_term_size
+        mov     eax, [term_w]
+        cmp     eax, [last_w]
+        jne     .changed
+        mov     eax, [term_h]
+        cmp     eax, [last_h]
+        jne     .changed
+        add     rsp, 56
+        ret
+.changed:
+        mov     eax, [term_w]
+        mov     [last_w], eax
+        mov     eax, [term_h]
+        mov     [last_h], eax
+        call    compute_origin
+        call    draw_static         ; clears and repaints at the new origin
+        add     rsp, 56
+        ret
+
+; -------------------------------------------------------------------
 ; wait_key : block until the user presses a key (used on exit screens)
 ; -------------------------------------------------------------------
 wait_key:
@@ -590,8 +688,10 @@ write_str:
 ; -------------------------------------------------------------------
 move_cursor:
         sub     rsp, 56
-        mov     r10d, ecx           ; stash row (ECX/EDX get reused below)
-        mov     r11d, edx           ; stash col
+        mov     r10d, ecx           ; row, shifted to centre the layout
+        add     r10d, [org_y]
+        mov     r11d, edx           ; col, shifted to centre the layout
+        add     r11d, [org_x]
 
         lea     rdi, [mcbuf]
         mov     byte [rdi], 27      ; ESC
