@@ -1,5 +1,6 @@
 # Build artifacts
 *.obj
+*.res
 *.exe
 
 # Runtime data

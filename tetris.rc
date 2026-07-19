@@ -1,0 +1,33 @@
+// Windows resources for the Tetris binary: the application icon and the
+// version information shown in Explorer's Details tab.
+
+1 ICON "tetris.ico"
+
+1 VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          0x40004L            // VOS_NT_WINDOWS32
+FILETYPE        0x1L                // VFT_APP
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"            // U.S. English, Unicode
+        BEGIN
+            VALUE "CompanyName",      "rugbedbugg"
+            VALUE "FileDescription",  "Retro TUI Tetris for the Windows console"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "retro-tetris"
+            VALUE "OriginalFilename", "retro-tetris.exe"
+            VALUE "ProductName",      "Retro Tetris"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "LegalCopyright",   "(c) 2026 yespa. MIT License."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
