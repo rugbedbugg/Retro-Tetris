@@ -233,6 +233,16 @@ pieces:
 ; points awarded for clearing 0..4 lines at once (scaled by level)
 points_tbl:     dd 0, 100, 300, 500, 800
 
+; NES-style gravity: frames the piece waits per row at each level, the
+; classic table indexed by (level - 1). One frame is ~16 ms at the NES's
+; ~60 fps, so multiplying an entry by 16 gives the drop interval. Levels
+; past the table clamp to the last (kill-screen) entry.
+gravity_tbl:
+        db 48,43,38,33,28,23,18,13, 8, 6    ; levels 1..10
+        db  5, 5, 5, 4, 4, 4, 3, 3, 3, 2    ; levels 11..20
+        db  2, 2, 2, 2, 2, 2, 2, 2, 2, 1    ; levels 21..30
+GRAV_MAX        equ 30              ; table length; higher levels clamp
+
 ; ===================================================================
 ; Writable data
 ; ===================================================================
@@ -1193,21 +1203,20 @@ step_down:
         ret
 
 ; -------------------------------------------------------------------
-; update_speed : set the gravity interval from the current level.
-;   Starts at 550 ms and shortens by 45 ms per level, floored at 70.
-;   Leaf.
+; update_speed : set the gravity interval from the current level using
+;   the NES frames-per-row table (see gravity_tbl). Leaf.
 ; -------------------------------------------------------------------
 update_speed:
-        mov     eax, [level]
-        dec     eax
-        imul    eax, eax, 45
-        mov     ecx, 550
-        sub     ecx, eax
-        cmp     ecx, 70
-        jge     .ok
-        mov     ecx, 70
-.ok:
-        mov     [drop_ms], ecx
+        mov     eax, [level]        ; 1-based current level
+        cmp     eax, GRAV_MAX       ; clamp to the last table entry
+        jle     .in
+        mov     eax, GRAV_MAX
+.in:
+        dec     eax                 ; table is indexed by (level - 1)
+        lea     rcx, [gravity_tbl]
+        movzx   eax, byte [rcx + rax]   ; frames to wait per row
+        imul    eax, eax, 16        ; ~16 ms per frame at ~60 fps
+        mov     [drop_ms], eax
         ret
 
 ; -------------------------------------------------------------------
@@ -1227,7 +1236,7 @@ game_init:
         mov     dword [score], 0
         mov     dword [lines], 0
         mov     dword [level], 1
-        mov     dword [drop_ms], 550
+        mov     dword [drop_ms], 768    ; level-1 gravity; update_speed refines it
         mov     dword [grav_acc], 0
         mov     byte  [game_over], 0
         mov     byte  [quit_flag], 0
