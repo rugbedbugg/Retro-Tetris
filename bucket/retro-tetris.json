@@ -1,0 +1,22 @@
+{
+    "version": "1.0.0",
+    "description": "A retro TUI Tetris for the Windows console, hand-written in x86-64 assembly.",
+    "homepage": "https://github.com/rugbedbugg/Retro-Tetris",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/rugbedbugg/Retro-Tetris/releases/download/v1.0.0/retro-tetris.exe#/retro-tetris.exe",
+            "hash": "1f41b6ac0f383fbd9587437ad46bdd96993e2dfe8771919eae3c9ca6b85cf0ed"
+        }
+    },
+    "bin": [["retro-tetris.exe", "retro-tetris"]],
+    "notes": "Run 'retro-tetris' in a terminal to play.",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/rugbedbugg/Retro-Tetris/releases/download/v$version/retro-tetris.exe#/retro-tetris.exe"
+            }
+        }
+    }
+}
