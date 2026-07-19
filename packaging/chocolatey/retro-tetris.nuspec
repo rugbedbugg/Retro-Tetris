@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>retro-tetris</id>
+    <version>1.0.0</version>
+    <packageSourceUrl>https://github.com/rugbedbugg/Retro-Tetris</packageSourceUrl>
+    <owners>rugbedbugg</owners>
+    <title>Retro Tetris</title>
+    <authors>yespa</authors>
+    <projectUrl>https://github.com/rugbedbugg/Retro-Tetris</projectUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/rugbedbugg/Retro-Tetris@v1.0.0/assets/icon.png</iconUrl>
+    <licenseUrl>https://github.com/rugbedbugg/Retro-Tetris/blob/master/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/rugbedbugg/Retro-Tetris</projectSourceUrl>
+    <docsUrl>https://github.com/rugbedbugg/Retro-Tetris/blob/master/README.md</docsUrl>
+    <bugTrackerUrl>https://github.com/rugbedbugg/Retro-Tetris/issues</bugTrackerUrl>
+    <tags>tetris game console terminal assembly retro tui</tags>
+    <summary>A retro TUI Tetris for the Windows console, hand-written in x86-64 assembly.</summary>
+    <description>
+Retro Tetris is a Tetris for the Windows console, hand-written in x86-64
+assembly (NASM). It renders on a green-phosphor palette with ANSI escape
+codes, reads input through the Win32 console API, and links no C runtime.
+
+After install, run `retro-tetris` in a terminal to play. Controls: move 7/9
+or arrows, rotate 8/Up, soft drop 4/Down, hard drop Space, pause P, quit
+Q/Esc.
+    </description>
+    <releaseNotes>https://github.com/rugbedbugg/Retro-Tetris/releases/tag/v1.0.0</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
