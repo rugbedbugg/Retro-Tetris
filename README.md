@@ -23,5 +23,11 @@ screen, the Win32 console API for input, and not a line of C. Just NASM.
 .\tetris.exe
 ```
 
+## Install
+
+```powershell
+winget install retro-tetris
+```
+
 Needs NASM, LLVM's `lld-link`, and the Windows SDK. Scores are saved to
 `scores.txt` — the top ten sit beside the board and on the game-over screen.
