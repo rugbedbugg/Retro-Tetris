@@ -5,6 +5,20 @@
 A Windows console Tetris on a green-phosphor palette: ANSI escape codes for the
 screen, the Win32 console API for input, and not a line of C. Just NASM.
 
+## Install
+
+**Winget**
+
+```powershell
+winget install rugbedbugg.RetroTetris
+```
+
+**Chocolatey**
+
+```powershell
+choco install retro-tetris
+```
+
 ## Controls
 
 | Key | Action |
@@ -21,12 +35,6 @@ screen, the Win32 console API for input, and not a line of C. Just NASM.
 ```powershell
 .\build.ps1     # nasm + lld-link -> tetris.exe
 .\tetris.exe
-```
-
-## Install
-
-```powershell
-winget install retro-tetris
 ```
 
 Needs NASM, LLVM's `lld-link`, and the Windows SDK. Scores are saved to
