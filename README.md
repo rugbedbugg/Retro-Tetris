@@ -132,6 +132,10 @@ No automated test suite (assembly game). Manual verification:
 | Palette | Green phosphor hardcoded - no config yet |
 | Exit | `Task Manager` → End Task loses score; `Q`/`Esc` saves gracefully |
 
+## License
+
+MIT, see [LICENSE](LICENSE).
+
 ## Links
 
 - **Repo:** https://github.com/rugbedbugg/Retro-Tetris
